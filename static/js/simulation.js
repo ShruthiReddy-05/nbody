@@ -194,6 +194,9 @@ function drawFrame(frameData, colors) {
     document.getElementById('total-frames').textContent = simulationData.length;
 }
 
+// Track time for frame advancement
+let lastFrameChangeTime = 0;
+
 function animate(timestamp) {
     // Calculate FPS
     if (lastFrameTime) {
@@ -207,9 +210,16 @@ function animate(timestamp) {
         // Draw current frame
         drawFrame(simulationData[currentFrame], bodyColors);
         
-        // Increment frame based on playback speed
-        if (timestamp - lastFrameTime > 1000 / (30 * playbackSpeed)) {
+        // Increment frame based on playback speed (adjust for smoother animation)
+        if (!lastFrameChangeTime) {
+            lastFrameChangeTime = timestamp;
+        }
+        
+        // Use a fixed frame rate based on playback speed
+        const frameDuration = 1000 / (10 * playbackSpeed); // 10 FPS base rate * speed
+        if (timestamp - lastFrameChangeTime > frameDuration) {
             currentFrame = (currentFrame + 1) % simulationData.length;
+            lastFrameChangeTime = timestamp;
         }
     }
     
@@ -238,11 +248,19 @@ async function loadSimulationData() {
             document.getElementById('total-frames').textContent = simulationData.length;
             document.getElementById('play-pause-button').disabled = false;
             
-            // Start animation
+            // Start animation and automatically start playing
+            isPlaying = true;
+            const playButton = document.getElementById('play-pause-button');
+            playButton.innerHTML = '<i class="bi bi-pause-fill"></i> Pause';
+            
             if (!animationFrameId) {
                 animationFrameId = requestAnimationFrame(animate);
             }
             
+            // Show first frame immediately
+            drawFrame(simulationData[0], bodyColors);
+            
+            console.log(`Loaded ${simulationData.length} frames of simulation data`);
             return true;
         } else {
             console.error('Failed to load simulation data:', data);
