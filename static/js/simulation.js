@@ -1,201 +1,227 @@
-// Canvas and rendering variables
-const canvas = document.getElementById('simulationCanvas');
-const ctx = canvas.getContext('2d');
-let animationFrameId = null;
+// Simulation canvas setup
+let canvas, ctx;
 let simulationData = [];
 let currentFrame = 0;
-let totalFrames = 0;
 let isPlaying = false;
-let playbackSpeed = 1.0;
+let playbackSpeed = 1;
+let animationFrameId = null;
+let lastFrameTime = 0;
+let fps = 0;
+let boundarySize = 20;
+let bodyColors = [];
 
-// Set up canvas dimensions
-function setupCanvas() {
-    const container = canvas.parentElement;
-    canvas.width = container.clientWidth * 0.95;
-    canvas.height = container.clientHeight * 0.95;
-    
-    // Set canvas aspect ratio to match the typical simulation
-    if (canvas.width > canvas.height * 1.5) {
-        canvas.width = canvas.height * 1.5;
-    } else if (canvas.height > canvas.width / 1.5) {
-        canvas.height = canvas.width / 1.5;
-    }
-}
-
-// Initialize canvas and add resize handling
-function initCanvas() {
+// Setup canvas when the page loads
+document.addEventListener('DOMContentLoaded', () => {
     setupCanvas();
-    window.addEventListener('resize', setupCanvas);
-}
+    setupEventListeners();
+});
 
-// Handle colors for bodies
-function getBodyColors(numBodies) {
-    const colors = [];
-    for (let i = 0; i < numBodies; i++) {
-        // Generate color from the HSL color space for more distinct colors
-        const hue = (i * 360 / numBodies) % 360;
-        colors.push(`hsl(${hue}, 80%, 60%)`);
+function setupCanvas() {
+    canvas = document.getElementById('simulation-canvas');
+    ctx = canvas.getContext('2d');
+    
+    // Make canvas responsive
+    function resizeCanvas() {
+        const container = document.getElementById('canvas-container');
+        canvas.width = container.clientWidth;
+        canvas.height = container.clientWidth * 0.9;  // 1:1 aspect ratio with a bit of margin
     }
-    return colors;
+    
+    // Initial size and resize on window changes
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+    
+    // Initial drawing
+    initCanvas();
 }
 
-// Draw a single frame of the simulation
-function drawFrame(frameData, colors) {
+function initCanvas() {
+    if (!ctx) return;
+    
+    boundarySize = parseInt(document.getElementById('boundary-value').textContent);
+    
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    if (!frameData || frameData.length === 0) return;
+    // Draw coordinate system like in the reference image
+    drawCoordinateSystem();
+}
+
+function getBodyColors(numBodies) {
+    // Generate colors according to the reference image
+    const colorMap = [
+        '#1f77b4',  // blue
+        '#ff7f0e',  // orange
+        '#2ca02c',  // green
+        '#d62728',  // red
+        '#9467bd',  // purple
+        '#8c564b',  // brown
+        '#e377c2',  // pink
+        '#7f7f7f',  // gray
+        '#bcbd22',  // olive
+        '#17becf'   // cyan
+    ];
     
-    // Set up coordinate mapping based on boundary size
-    const boundary = parseFloat(document.getElementById('boundary').value);
-    const scale = Math.min(canvas.width, canvas.height) / (boundary * 2.2);
-    const offsetX = canvas.width / 2;
-    const offsetY = canvas.height / 2;
+    return Array.from({ length: numBodies }, (_, i) => colorMap[i % colorMap.length]);
+}
+
+function drawCoordinateSystem() {
+    const width = canvas.width;
+    const height = canvas.height;
+    const padding = 30;
     
-    // Calculate center of mass
-    let comX = 0;
-    let comY = 0;
-    for (const body of frameData) {
-        comX += body[0];
-        comY += body[1];
-    }
-    comX /= frameData.length;
-    comY /= frameData.length;
+    // Define coordinate system bounds
+    const bounds = boundarySize;
     
-    // Draw trails first (if we have enough data)
-    const trailLength = 20;
-    if (currentFrame >= 1) {
-        // Get up to 'trailLength' previous frames
-        for (let i = 0; i < frameData.length; i++) {
-            ctx.beginPath();
-            
-            // Start from the most recent point that's available given our current frame
-            const startIdx = Math.max(0, currentFrame - trailLength);
-            
-            // Draw line segments for the trail
-            let firstPoint = true;
-            for (let frameIdx = startIdx; frameIdx <= currentFrame; frameIdx++) {
-                if (frameIdx >= simulationData.length) continue;
-                
-                const frame = simulationData[frameIdx];
-                if (i >= frame.length) continue;
-                
-                const x = offsetX + frame[i][0] * scale;
-                const y = offsetY - frame[i][1] * scale; // Flip Y coordinate
-                
-                if (firstPoint) {
-                    ctx.moveTo(x, y);
-                    firstPoint = false;
-                } else {
-                    ctx.lineTo(x, y);
-                }
-            }
-            
-            // Style and draw the trail
-            ctx.strokeStyle = colors[i];
-            ctx.globalAlpha = 0.4;
-            ctx.lineWidth = 2;
-            ctx.stroke();
-            ctx.globalAlpha = 1.0;
+    // Calculate scale factors
+    const xScale = (width - 2 * padding) / (2 * bounds);
+    const yScale = (height - 2 * padding) / (2 * bounds);
+    
+    // Clear canvas with white background like in reference
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, width, height);
+    
+    // Draw border
+    ctx.strokeStyle = 'black';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(padding, padding, width - 2 * padding, height - 2 * padding);
+    
+    // Draw axes ticks and labels (x-axis)
+    ctx.fillStyle = 'black';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    
+    // X-axis ticks
+    for (let x = -bounds; x <= bounds; x += 5) {
+        const pixelX = padding + (x + bounds) * xScale;
+        
+        // Draw tick
+        ctx.beginPath();
+        ctx.moveTo(pixelX, height - padding);
+        ctx.lineTo(pixelX, height - padding + 5);
+        ctx.stroke();
+        
+        // Draw label
+        if (x % 10 === 0) {
+            ctx.fillText(x.toString(), pixelX, height - padding + 7);
         }
     }
     
-    // Draw bodies
-    for (let i = 0; i < frameData.length; i++) {
-        const [x, y] = frameData[i];
+    // Y-axis ticks
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    
+    for (let y = -bounds; y <= bounds; y += 5) {
+        const pixelY = height - padding - (y + bounds) * yScale;
         
-        // Convert to canvas coordinates
-        const canvasX = offsetX + x * scale;
-        const canvasY = offsetY - y * scale; // Flip Y coordinate
-        
-        // Draw the body
+        // Draw tick
         ctx.beginPath();
-        ctx.arc(canvasX, canvasY, 10, 0, Math.PI * 2);
-        ctx.fillStyle = colors[i];
-        ctx.fill();
-        ctx.strokeStyle = 'white';
-        ctx.lineWidth = 1;
+        ctx.moveTo(padding, pixelY);
+        ctx.lineTo(padding - 5, pixelY);
         ctx.stroke();
-    }
-    
-    // Draw center of mass
-    ctx.beginPath();
-    ctx.moveTo(offsetX + comX * scale - 8, offsetY - comY * scale - 8);
-    ctx.lineTo(offsetX + comX * scale + 8, offsetY - comY * scale + 8);
-    ctx.moveTo(offsetX + comX * scale + 8, offsetY - comY * scale - 8);
-    ctx.lineTo(offsetX + comX * scale - 8, offsetY - comY * scale + 8);
-    ctx.strokeStyle = 'red';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    
-    // Draw boundary
-    ctx.beginPath();
-    ctx.strokeStyle = 'rgba(100, 100, 100, 0.3)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(
-        offsetX - boundary * scale,
-        offsetY - boundary * scale,
-        boundary * 2 * scale,
-        boundary * 2 * scale
-    );
-    
-    // Update frame counter
-    document.getElementById('frameCounter').textContent = `${currentFrame + 1}/${totalFrames}`;
-    
-    // Update time slider if not being dragged
-    if (!timeSliderDragging) {
-        document.getElementById('timeSlider').value = currentFrame;
+        
+        // Draw label
+        if (y % 10 === 0) {
+            ctx.fillText(y.toString(), padding - 7, pixelY);
+        }
     }
 }
 
-// Animation loop for playback
-function animate() {
-    if (isPlaying && simulationData.length > 0) {
-        // Increment frame based on playback speed
-        currentFrame += playbackSpeed;
-        
-        // Loop back to beginning if we reach the end
-        if (currentFrame >= totalFrames) {
-            currentFrame = 0;
-        }
-        
-        // Ensure currentFrame is an integer
-        currentFrame = Math.floor(currentFrame);
-        
-        // Draw the current frame
-        drawFrame(simulationData[currentFrame], bodyColors);
-    }
+function drawFrame(frameData, colors) {
+    if (!ctx || !frameData) return;
     
-    // Calculate and update FPS
-    updateFPS();
+    const width = canvas.width;
+    const height = canvas.height;
+    const padding = 30;
+    
+    // Define coordinate system bounds
+    const bounds = boundarySize;
+    
+    // Calculate scale factors
+    const xScale = (width - 2 * padding) / (2 * bounds);
+    const yScale = (height - 2 * padding) / (2 * bounds);
+    
+    // Clear canvas and redraw coordinate system
+    drawCoordinateSystem();
+    
+    // Draw bodies at their positions
+    frameData.forEach((position, index) => {
+        const x = position[0];
+        const y = position[1];
+        
+        // Convert from simulation coordinates to canvas coordinates
+        const pixelX = padding + (x + bounds) * xScale;
+        const pixelY = height - padding - (y + bounds) * yScale;
+        
+        // Draw body
+        ctx.fillStyle = colors[index];
+        ctx.beginPath();
+        ctx.arc(pixelX, pixelY, 8, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Draw trails if we have history
+        if (simulationData.length > 1) {
+            // Calculate how many frames to include in trail
+            const trailLength = Math.min(20, currentFrame);
+            
+            if (trailLength > 0) {
+                // Draw trail
+                ctx.strokeStyle = colors[index];
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                
+                // Start from current position
+                ctx.moveTo(pixelX, pixelY);
+                
+                // Draw trail lines backward through frames
+                for (let i = 1; i <= trailLength; i++) {
+                    const trailFrameIndex = currentFrame - i;
+                    if (trailFrameIndex >= 0) {
+                        const trailPos = simulationData[trailFrameIndex][index];
+                        const trailX = padding + (trailPos[0] + bounds) * xScale;
+                        const trailY = height - padding - (trailPos[1] + bounds) * yScale;
+                        ctx.lineTo(trailX, trailY);
+                    }
+                }
+                
+                ctx.stroke();
+            }
+        }
+    });
+    
+    // Update frame counter
+    document.getElementById('current-frame').textContent = currentFrame + 1;
+    document.getElementById('total-frames').textContent = simulationData.length;
+}
+
+function animate(timestamp) {
+    // Calculate FPS
+    if (lastFrameTime) {
+        const deltaTime = timestamp - lastFrameTime;
+        fps = Math.round(1000 / deltaTime);
+        document.getElementById('fps-counter').textContent = fps;
+    }
+    lastFrameTime = timestamp;
+    
+    if (isPlaying && simulationData.length > 0) {
+        // Draw current frame
+        drawFrame(simulationData[currentFrame], bodyColors);
+        
+        // Increment frame based on playback speed
+        if (timestamp - lastFrameTime > 1000 / (30 * playbackSpeed)) {
+            currentFrame = (currentFrame + 1) % simulationData.length;
+        }
+    }
     
     // Continue animation loop
     animationFrameId = requestAnimationFrame(animate);
 }
 
-// FPS calculation
-let frameCount = 0;
-let lastTime = performance.now();
-let fps = 0;
-
 function updateFPS() {
-    frameCount++;
-    const now = performance.now();
-    const elapsed = now - lastTime;
-    
-    if (elapsed >= 1000) {
-        fps = Math.round((frameCount * 1000) / elapsed);
-        document.getElementById('fpsCounter').textContent = `${fps} FPS`;
-        
-        frameCount = 0;
-        lastTime = now;
-    }
+    document.getElementById('fps-counter').textContent = fps;
+    setTimeout(updateFPS, 500);  // Update every half second
 }
 
-// Flag to track if the time slider is being dragged
-let timeSliderDragging = false;
-
-// Load simulation data
 async function loadSimulationData() {
     try {
         const response = await fetch('/api/all_position_data');
@@ -203,31 +229,18 @@ async function loadSimulationData() {
         
         if (data.status === 'success') {
             simulationData = data.data;
-            totalFrames = simulationData.length;
+            currentFrame = 0;
             
-            // Update the time slider max value
-            const timeSlider = document.getElementById('timeSlider');
-            timeSlider.max = totalFrames - 1;
-            timeSlider.disabled = false;
-            
-            // Enable play/pause button
-            document.getElementById('playPauseButton').disabled = false;
-            
-            // Update body colors
+            // Generate colors for bodies
             bodyColors = getBodyColors(simulationData[0].length);
             
-            // Draw the first frame
-            currentFrame = 0;
-            drawFrame(simulationData[currentFrame], bodyColors);
+            // Update UI
+            document.getElementById('total-frames').textContent = simulationData.length;
+            document.getElementById('play-pause-button').disabled = false;
             
-            // Start animation if not already running
+            // Start animation
             if (!animationFrameId) {
-                isPlaying = true;
-                animate();
-                
-                // Update play/pause button
-                const playPauseButton = document.getElementById('playPauseButton');
-                playPauseButton.innerHTML = '<i class="fa fa-pause"></i>';
+                animationFrameId = requestAnimationFrame(animate);
             }
             
             return true;
@@ -241,63 +254,57 @@ async function loadSimulationData() {
     }
 }
 
-// Check simulation status
 async function checkSimulationStatus() {
     try {
         const response = await fetch('/api/simulation_status');
         const data = await response.json();
         
-        if (data.running) {
-            document.getElementById('simulationStatus').textContent = 'Running';
-            document.getElementById('simulationStatus').className = 'badge status-running me-2';
-            document.getElementById('loadingOverlay').classList.remove('d-none');
+        if (!data.running) {
+            // Simulation is done, load data
+            await loadSimulationData();
             
-            // Disable start button, enable stop button
-            document.getElementById('startButton').disabled = true;
-            document.getElementById('stopButton').disabled = false;
+            // Update UI
+            document.getElementById('start-button').disabled = false;
+            document.getElementById('stop-button').disabled = true;
             
-            // Check again after a short delay
-            setTimeout(checkSimulationStatus, 1000);
-        } else {
-            document.getElementById('simulationStatus').textContent = 'Ready';
-            document.getElementById('simulationStatus').className = 'badge status-ready me-2';
-            document.getElementById('loadingOverlay').classList.add('d-none');
-            
-            // Enable start button, disable stop button
-            document.getElementById('startButton').disabled = false;
-            document.getElementById('stopButton').disabled = true;
-            
-            // Try to load simulation data
-            loadSimulationData();
+            return true;
         }
+        
+        // If still running, check again in a moment
+        setTimeout(checkSimulationStatus, 1000);
+        return false;
     } catch (error) {
         console.error('Error checking simulation status:', error);
-        document.getElementById('simulationStatus').textContent = 'Error';
-        document.getElementById('simulationStatus').className = 'badge status-error me-2';
-        document.getElementById('loadingOverlay').classList.add('d-none');
-        
-        // Enable start button, disable stop button
-        document.getElementById('startButton').disabled = false;
-        document.getElementById('stopButton').disabled = true;
+        setTimeout(checkSimulationStatus, 2000);  // Retry after error
+        return false;
     }
 }
 
-// Start the simulation with the current parameters
 async function startSimulation() {
-    // Get parameters from form
-    const numBodies = parseInt(document.getElementById('numBodies').value);
-    const timeSteps = parseInt(document.getElementById('timeSteps').value);
-    const dt = parseFloat(document.getElementById('dtValue').value);
-    const boundary = parseFloat(document.getElementById('boundary').value);
-    
-    // Validate parameters
-    if (isNaN(numBodies) || isNaN(timeSteps) || isNaN(dt) || isNaN(boundary)) {
-        alert('Invalid parameters. Please check your inputs.');
-        return;
-    }
-    
     try {
-        // Send request to start simulation
+        // Get parameters from sliders
+        const numBodies = parseInt(document.getElementById('num-bodies-slider').value);
+        const timeSteps = parseInt(document.getElementById('time-steps-slider').value);
+        const dt = parseFloat(document.getElementById('dt-slider').value);
+        const boundary = parseInt(document.getElementById('boundary-slider').value);
+        
+        boundarySize = boundary;
+        
+        // Update UI
+        document.getElementById('start-button').disabled = true;
+        document.getElementById('stop-button').disabled = false;
+        document.getElementById('play-pause-button').disabled = true;
+        
+        // Clear previous data
+        simulationData = [];
+        currentFrame = 0;
+        document.getElementById('current-frame').textContent = '0';
+        document.getElementById('total-frames').textContent = '0';
+        
+        // Draw empty canvas with proper bounds
+        initCanvas();
+        
+        // Start simulation
         const response = await fetch('/api/start_simulation', {
             method: 'POST',
             headers: {
@@ -316,19 +323,21 @@ async function startSimulation() {
         if (data.status === 'success') {
             console.log('Simulation started successfully');
             
-            // Start checking simulation status
+            // Start checking status
             checkSimulationStatus();
+            return true;
         } else {
-            console.error('Failed to start simulation:', data.message);
-            alert(`Failed to start simulation: ${data.message}`);
+            console.error('Failed to start simulation:', data);
+            document.getElementById('start-button').disabled = false;
+            return false;
         }
     } catch (error) {
         console.error('Error starting simulation:', error);
-        alert('Error starting simulation. Please try again.');
+        document.getElementById('start-button').disabled = false;
+        return false;
     }
 }
 
-// Stop the simulation
 async function stopSimulation() {
     try {
         const response = await fetch('/api/stop_simulation', {
@@ -340,110 +349,83 @@ async function stopSimulation() {
         if (data.status === 'success') {
             console.log('Simulation stopping...');
             
-            // Check status to update UI
+            // Update UI
+            document.getElementById('stop-button').disabled = true;
+            
+            // Check status for completion
             checkSimulationStatus();
+            return true;
         } else {
-            console.error('Failed to stop simulation:', data.message);
-            alert(`Failed to stop simulation: ${data.message}`);
+            console.error('Failed to stop simulation:', data);
+            return false;
         }
     } catch (error) {
         console.error('Error stopping simulation:', error);
-        alert('Error stopping simulation. Please try again.');
+        return false;
     }
 }
 
-// Reset the simulation view
 function resetSimulation() {
-    // Cancel animation
-    if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-        animationFrameId = null;
-    }
-    
-    // Reset variables
+    // Clear data
     simulationData = [];
     currentFrame = 0;
-    totalFrames = 0;
-    isPlaying = false;
     
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Update UI
+    document.getElementById('current-frame').textContent = '0';
+    document.getElementById('total-frames').textContent = '0';
+    document.getElementById('play-pause-button').disabled = true;
+    document.getElementById('start-button').disabled = false;
+    document.getElementById('stop-button').disabled = true;
     
-    // Reset UI
-    document.getElementById('simulationStatus').textContent = 'Ready';
-    document.getElementById('simulationStatus').className = 'badge status-ready me-2';
-    document.getElementById('loadingOverlay').classList.add('d-none');
-    document.getElementById('frameCounter').textContent = '0/0';
-    document.getElementById('fpsCounter').textContent = '0 FPS';
-    
-    // Disable playback controls
-    document.getElementById('timeSlider').value = 0;
-    document.getElementById('timeSlider').max = 100;
-    document.getElementById('timeSlider').disabled = true;
-    document.getElementById('playPauseButton').disabled = true;
-    document.getElementById('playPauseButton').innerHTML = '<i class="fa fa-play"></i>';
-    
-    // Enable start button, disable stop button
-    document.getElementById('startButton').disabled = false;
-    document.getElementById('stopButton').disabled = true;
+    // Redraw empty canvas
+    initCanvas();
 }
 
-// Toggle play/pause
 function togglePlayPause() {
-    if (!simulationData.length) return;
+    if (simulationData.length === 0) return;
     
     isPlaying = !isPlaying;
+    const button = document.getElementById('play-pause-button');
     
-    const playPauseButton = document.getElementById('playPauseButton');
     if (isPlaying) {
-        playPauseButton.innerHTML = '<i class="fa fa-pause"></i>';
-        document.getElementById('simulationStatus').textContent = 'Playing';
-        document.getElementById('simulationStatus').className = 'badge status-running me-2';
-        
-        // Start animation if not already running
-        if (!animationFrameId) {
-            animate();
-        }
+        button.innerHTML = '<i class="bi bi-pause-fill"></i> Pause';
     } else {
-        playPauseButton.innerHTML = '<i class="fa fa-play"></i>';
-        document.getElementById('simulationStatus').textContent = 'Paused';
-        document.getElementById('simulationStatus').className = 'badge status-paused me-2';
+        button.innerHTML = '<i class="bi bi-play-fill"></i> Play';
     }
 }
 
-// Initialize on page load
-let bodyColors = [];
-document.addEventListener('DOMContentLoaded', () => {
-    initCanvas();
+function setupEventListeners() {
+    // Buttons
+    document.getElementById('start-button').addEventListener('click', startSimulation);
+    document.getElementById('stop-button').addEventListener('click', stopSimulation);
+    document.getElementById('reset-button').addEventListener('click', resetSimulation);
+    document.getElementById('play-pause-button').addEventListener('click', togglePlayPause);
     
-    // Set up time slider events
-    const timeSlider = document.getElementById('timeSlider');
-    timeSlider.addEventListener('mousedown', () => {
-        timeSliderDragging = true;
+    // Sliders
+    document.getElementById('num-bodies-slider').addEventListener('input', (e) => {
+        document.getElementById('num-bodies-value').textContent = e.target.value;
     });
     
-    timeSlider.addEventListener('mouseup', () => {
-        timeSliderDragging = false;
+    document.getElementById('time-steps-slider').addEventListener('input', (e) => {
+        document.getElementById('time-steps-value').textContent = e.target.value;
     });
     
-    timeSlider.addEventListener('input', () => {
-        if (simulationData.length) {
-            currentFrame = parseInt(timeSlider.value);
-            drawFrame(simulationData[currentFrame], bodyColors);
-        }
+    document.getElementById('dt-slider').addEventListener('input', (e) => {
+        document.getElementById('dt-value').textContent = e.target.value;
     });
     
-    // Start the animation loop
-    animate();
-});
-
-// Export functions for controls.js
-window.simulation = {
-    startSimulation,
-    stopSimulation,
-    resetSimulation,
-    togglePlayPause,
-    setPlaybackSpeed: (speed) => {
-        playbackSpeed = speed;
-    }
-};
+    document.getElementById('boundary-slider').addEventListener('input', (e) => {
+        document.getElementById('boundary-value').textContent = e.target.value;
+    });
+    
+    document.getElementById('playback-speed').addEventListener('input', (e) => {
+        playbackSpeed = parseFloat(e.target.value);
+        document.getElementById('playback-speed-value').textContent = `${playbackSpeed}x`;
+    });
+    
+    // Start FPS counter
+    updateFPS();
+    
+    // Start animation loop
+    animationFrameId = requestAnimationFrame(animate);
+}

@@ -1,170 +1,95 @@
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>N-Body Simulation Console</title>
-    <!-- Bootstrap CSS (Replit theme) -->
+    <title>N-Body Simulation</title>
     <link rel="stylesheet" href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css">
-    <!-- Custom CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
 </head>
 <body>
-    <div class="container-fluid py-4">
+    <div class="container mt-4">
+        <h1 class="mb-4 text-center">N-Body Simulation</h1>
+        
         <div class="row">
-            <!-- Simulation Canvas Container -->
-            <div class="col-lg-8 mb-4">
-                <div class="card h-100 console-panel">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0">N-Body Simulation</h5>
-                        <div class="d-flex">
-                            <span id="simulationStatus" class="badge bg-secondary me-2">Ready</span>
-                            <span id="fpsCounter" class="badge bg-dark">0 FPS</span>
-                        </div>
+            <div class="col-lg-8">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Simulation Visualization</h5>
                     </div>
-                    <div class="card-body d-flex align-items-center justify-content-center position-relative">
-                        <canvas id="simulationCanvas"></canvas>
-                        <div id="loadingOverlay" class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-dark bg-opacity-75 d-none">
-                            <div class="text-center">
-                                <div class="spinner-border text-light mb-3" role="status">
-                                    <span class="visually-hidden">Loading...</span>
-                                </div>
-                                <h5 class="text-light">Running Simulation...</h5>
-                            </div>
+                    <div class="card-body p-0">
+                        <div id="canvas-container">
+                            <canvas id="simulation-canvas"></canvas>
                         </div>
                     </div>
                 </div>
             </div>
             
-            <!-- Console Controls -->
-            <div class="col-lg-4 mb-4">
-                <div class="card h-100 console-panel">
+            <div class="col-lg-4">
+                <div class="card mb-4">
                     <div class="card-header">
-                        <h5 class="mb-0">Control Console</h5>
+                        <h5 class="mb-0">Controls</h5>
                     </div>
                     <div class="card-body">
-                        <form id="simulationForm">
-                            <div class="mb-3">
-                                <label for="numBodies" class="form-label d-flex justify-content-between">
-                                    <span>Number of Bodies</span>
-                                    <span id="numBodiesValue">4</span>
-                                </label>
-                                <input type="range" class="form-range" id="numBodies" min="2" max="20" value="4">
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label for="simSpeed" class="form-label d-flex justify-content-between">
-                                    <span>Simulation Speed</span>
-                                    <span id="simSpeedValue">1.0x</span>
-                                </label>
-                                <input type="range" class="form-range" id="simSpeed" min="0.1" max="5" step="0.1" value="1">
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label for="boundary" class="form-label d-flex justify-content-between">
-                                    <span>Boundary Size</span>
-                                    <span id="boundaryValue">20</span>
-                                </label>
-                                <input type="range" class="form-range" id="boundary" min="5" max="50" value="20">
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label for="timeSteps" class="form-label d-flex justify-content-between">
-                                    <span>Time Steps</span>
-                                    <span id="timeStepsValue">5000</span>
-                                </label>
-                                <input type="range" class="form-range" id="timeSteps" min="1000" max="10000" step="1000" value="5000">
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label for="dtValue" class="form-label d-flex justify-content-between">
-                                    <span>Time Delta (dt)</span>
-                                    <span id="dtValueDisplay">0.01</span>
-                                </label>
-                                <input type="range" class="form-range" id="dtValue" min="0.001" max="0.1" step="0.001" value="0.01">
-                            </div>
-                        </form>
+                        <div class="mb-3">
+                            <label for="num-bodies-slider" class="form-label">Number of Bodies: <span id="num-bodies-value">4</span></label>
+                            <input type="range" class="form-range" id="num-bodies-slider" min="2" max="10" value="4">
+                        </div>
                         
-                        <div class="d-grid gap-2 mt-4">
-                            <button id="startButton" class="btn btn-success btn-lg console-button">
-                                <i class="fa fa-play me-2"></i> Start Simulation
-                            </button>
-                            <button id="stopButton" class="btn btn-danger btn-lg console-button" disabled>
-                                <i class="fa fa-stop me-2"></i> Stop Simulation
-                            </button>
-                            <button id="resetButton" class="btn btn-secondary btn-lg console-button">
-                                <i class="fa fa-refresh me-2"></i> Reset
-                            </button>
+                        <div class="mb-3">
+                            <label for="time-steps-slider" class="form-label">Time Steps: <span id="time-steps-value">5000</span></label>
+                            <input type="range" class="form-range" id="time-steps-slider" min="1000" max="10000" step="1000" value="5000">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="dt-slider" class="form-label">Time Step Size (dt): <span id="dt-value">0.01</span></label>
+                            <input type="range" class="form-range" id="dt-slider" min="0.001" max="0.05" step="0.001" value="0.01">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="boundary-slider" class="form-label">Boundary Size: <span id="boundary-value">20</span></label>
+                            <input type="range" class="form-range" id="boundary-slider" min="10" max="50" step="5" value="20">
+                        </div>
+                        
+                        <div class="d-grid gap-2">
+                            <button id="start-button" class="btn btn-primary">Start Simulation</button>
+                            <button id="stop-button" class="btn btn-secondary" disabled>Stop Simulation</button>
+                            <button id="reset-button" class="btn btn-outline-secondary">Reset</button>
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
-        
-        <!-- Playback Controls -->
-        <div class="row">
-            <div class="col-12">
-                <div class="card console-panel">
-                    <div class="card-body">
-                        <div class="row align-items-center">
-                            <div class="col-md-1">
-                                <button id="playPauseButton" class="btn btn-primary console-button" disabled>
-                                    <i class="fa fa-play"></i>
-                                </button>
-                            </div>
-                            <div class="col-md-10">
-                                <input type="range" class="form-range" id="timeSlider" min="0" max="100" value="0" disabled>
-                            </div>
-                            <div class="col-md-1 text-end">
-                                <span id="frameCounter" class="badge bg-dark">0/0</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Information Panel -->
-        <div class="row mt-4">
-            <div class="col-12">
-                <div class="card console-panel">
+                
+                <div class="card">
                     <div class="card-header">
-                        <h5 class="mb-0">Simulation Information</h5>
+                        <h5 class="mb-0">Playback Controls</h5>
                     </div>
                     <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-6">
-                                <h6>About the Simulation</h6>
-                                <p>This is an N-Body gravitational simulation using OpenMPI for parallel computation. 
-                                The simulation calculates the gravitational interactions between multiple bodies in space.</p>
-                                <ul>
-                                    <li>Colored circles represent bodies in the simulation</li>
-                                    <li>Lines show the trajectory of each body</li>
-                                    <li>The red cross shows the center of mass</li>
-                                </ul>
+                        <div class="d-flex justify-content-between mb-3">
+                            <button id="play-pause-button" class="btn btn-sm btn-secondary" disabled>
+                                <i class="bi bi-play-fill"></i> Play
+                            </button>
+                            <div>
+                                <span>Frame: </span>
+                                <span id="current-frame">0</span>
+                                <span> / </span>
+                                <span id="total-frames">0</span>
                             </div>
-                            <div class="col-md-6">
-                                <h6>Controls Guide</h6>
-                                <ul>
-                                    <li><strong>Number of Bodies</strong>: Adjust the number of objects in the simulation</li>
-                                    <li><strong>Simulation Speed</strong>: Control the playback speed</li>
-                                    <li><strong>Boundary Size</strong>: Set the simulation area size</li>
-                                    <li><strong>Time Steps</strong>: Number of calculation steps</li>
-                                    <li><strong>Time Delta</strong>: Time increment between steps</li>
-                                </ul>
+                            <div>
+                                <span>FPS: </span>
+                                <span id="fps-counter">0</span>
                             </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="playback-speed" class="form-label">Speed: <span id="playback-speed-value">1x</span></label>
+                            <input type="range" class="form-range" id="playback-speed" min="0.25" max="3" step="0.25" value="1">
                         </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
-
-    <!-- Font Awesome for icons -->
-    <script src="https://kit.fontawesome.com/4f61b4c2a1.js" crossorigin="anonymous"></script>
-    <!-- Bootstrap JavaScript -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- Custom JavaScript -->
+    
     <script src="{{ url_for('static', filename='js/simulation.js') }}"></script>
     <script src="{{ url_for('static', filename='js/controls.js') }}"></script>
 </body>
