@@ -1,0 +1,225 @@
+from mpi4py import MPI
+import numpy as np
+from matplotlib.animation import FuncAnimation
+import matplotlib.pyplot as plt
+
+def compute_forces(local_positions, positions, masses, G=6.67430e-11):
+    """ Computes gravitational forces on local bodies from all bodies using vectorized operations. """
+    local_forces = np.zeros_like(local_positions)
+    local_indices = np.arange(local_start, local_start + len(local_positions))
+    
+    for i, (pos, idx) in enumerate(zip(local_positions, local_indices)):
+        # Create a mask to exclude self-interaction
+        mask = np.ones(len(positions), dtype=bool)
+        mask[idx] = False
+        
+        # Calculate displacement vectors (vectorized)
+        r_vectors = positions[mask] - pos
+        
+        # Calculate distances (vectorized)
+        r_magnitudes = np.linalg.norm(r_vectors, axis=1)
+        r_magnitudes = np.maximum(r_magnitudes, 1e-10)  # Prevent division by zero
+        
+        # Calculate force contributions (vectorized)
+        force_magnitudes = G * masses[mask] / (r_magnitudes**3)
+        force_vectors = r_vectors * force_magnitudes[:, np.newaxis]
+        
+        # Sum all force contributions
+        local_forces[i] = np.sum(force_vectors, axis=0)
+    
+    return local_forces
+
+def initialize_nbody_system(num_bodies, boundary=20):
+    """Initialize a stable orbital system with uniform velocities."""
+    positions = np.zeros((num_bodies, 2))
+    velocities = np.zeros((num_bodies, 2))
+    masses = np.ones(num_bodies) * 5.0e12  # Uniform masses for better stability
+    
+    # Place bodies in a circular formation
+    radius = boundary * 0.7  # Use 70% of the boundary for initial positions
+    angle_step = 2 * np.pi / num_bodies
+    
+    for i in range(num_bodies):
+        angle = i * angle_step
+        positions[i] = [radius * np.cos(angle), radius * np.sin(angle)]
+        
+        # Set velocities perpendicular to position for circular orbits
+        # Scale velocity by distance to create stable orbits
+        orbital_speed = np.sqrt(6.67430e-11 * masses.sum() / radius) * 0.5
+        velocities[i] = [-orbital_speed * np.sin(angle), orbital_speed * np.cos(angle)]
+    
+    return positions, velocities, masses
+
+def nbody_simulation(num_bodies, time_steps, dt, boundary=20):
+    """ Runs an MPI-based N-body simulation with precise physics. """
+    global local_start  # Make local_start available to compute_forces
+    
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    num_procs = comm.Get_size()
+
+    if rank == 0:
+        # Initialize with stable orbital system
+        positions, velocities, masses = initialize_nbody_system(num_bodies, boundary)
+    else:
+        # Non-root processes initialize empty arrays
+        positions = np.empty((num_bodies, 2))
+        velocities = np.empty((num_bodies, 2))
+        masses = np.empty(num_bodies)
+
+    # Broadcast data to all processes
+    comm.Bcast(positions, root=0)
+    comm.Bcast(velocities, root=0)
+    comm.Bcast(masses, root=0)
+
+    # Determine local workload with balanced distribution
+    local_n = num_bodies // num_procs
+    remainder = num_bodies % num_procs
+    
+    # Calculate start and end indices for this process
+    local_start = rank * local_n + min(rank, remainder)
+    local_end = local_start + local_n + (1 if rank < remainder else 0)
+    
+    # Get local portion of data
+    local_positions = positions[local_start:local_end].copy()
+    local_velocities = velocities[local_start:local_end].copy()
+    
+    # Only root process stores history, but save less frequently to reduce memory usage
+    save_interval = max(1, time_steps // 500)  # Store at most 500 frames
+    position_history = [] if rank == 0 else None
+    
+    # Run simulation for specified time steps
+    for step in range(time_steps):
+        # Calculate forces on local bodies
+        local_forces = compute_forces(local_positions, positions, masses)
+        
+        # Gather all forces back to root using MPI.Gatherv
+        recvcounts = np.array([local_n + (1 if r < remainder else 0) for r in range(num_procs)]) * 2
+        displs = np.array([r * local_n * 2 + min(r, remainder) * 2 for r in range(num_procs)])
+        
+        if rank == 0:
+            all_forces = np.empty((num_bodies, 2))
+        else:
+            all_forces = None
+            
+        comm.Gatherv(local_forces, [all_forces, recvcounts, displs, MPI.DOUBLE], root=0)
+        
+        # Root updates positions and velocities using leapfrog integration for better stability
+        if rank == 0:
+            # Update velocities by half step
+            velocities += all_forces * dt * 0.5
+            
+            # Update positions by full step
+            positions += velocities * dt
+            
+            # Update velocities by another half step
+            velocities += all_forces * dt * 0.5
+            
+            # Save position history at reduced frequency
+            if step % save_interval == 0:
+                position_history.append(positions.copy())
+        
+        # Broadcast updated positions to all processes
+        comm.Bcast(positions, root=0)
+        
+        # Update local positions based on new global positions
+        local_positions = positions[local_start:local_end].copy()
+
+    # Ensure all processes finish before continuing
+    comm.Barrier()
+    
+    return position_history if rank == 0 else None
+
+def visualize(position_history, num_bodies, dt, boundary=20, save_interval=1):
+    """ Animates the simulation using Matplotlib with improved visualization. """
+    fig, ax = plt.subplots(figsize=(10, 10))
+    
+    # Generate distinct colors for each body
+    colors = plt.cm.viridis(np.linspace(0, 1, num_bodies))
+    
+    # Create point objects for animation
+    scatter = ax.scatter([], [], s=200, edgecolors='white', linewidth=0.5)
+    
+    # Create line objects for trails
+    lines = [ax.plot([], [], '-', alpha=0.4, linewidth=1.5)[0] for _ in range(num_bodies)]
+    
+    # Set axis limits with some padding
+    ax.set_xlim(-boundary*1.1, boundary*1.1)
+    ax.set_ylim(-boundary*1.1, boundary*1.1)
+    ax.set_aspect('equal')
+    
+    # Set background color and grid
+    ax.set_facecolor('black')
+    ax.grid(color='gray', linestyle='--', alpha=0.3)
+    
+    # Set title
+    title = ax.set_title("N-Body Simulation - Time: 0.00", color='white', fontsize=14)
+    fig.patch.set_facecolor('black')
+    
+    # Add center of mass marker
+    com = ax.plot([], [], 'r+', markersize=10)[0]
+    
+    # Pre-compute trail data for all frames to improve performance
+    trails = []
+    for i in range(num_bodies):
+        body_trail = np.array([[frame[i, 0], frame[i, 1]] for frame in position_history])
+        trails.append(body_trail)
+    
+    def init():
+        scatter.set_offsets(np.empty((0, 2)))
+        for line in lines:
+            line.set_data([], [])
+        com.set_data([], [])
+        return [scatter, com] + lines + [title]
+    
+    def animate(frame_idx):
+        frame = min(frame_idx, len(position_history)-1)
+        current_positions = position_history[frame]
+        
+        # Update point positions
+        scatter.set_offsets(current_positions)
+        scatter.set_color(colors)
+        
+        # Calculate and show center of mass
+        com_pos = np.mean(current_positions, axis=0)
+        com.set_data([com_pos[0]], [com_pos[1]])
+        
+        # Update trails with fixed length
+        trail_length = 50
+        for i in range(num_bodies):
+            start_idx = max(0, frame - trail_length)
+            trail_data = trails[i][start_idx:frame+1]
+            lines[i].set_data(trail_data[:, 0], trail_data[:, 1])
+            lines[i].set_color(colors[i])
+        
+        # Update title with current time
+        title.set_text(f"N-Body Simulation - Time: {frame * dt * save_interval:.2f}")
+        
+        return [scatter, com] + lines + [title]
+    
+    # Create animation with adjusted speed
+    ani = FuncAnimation(fig, animate, frames=len(position_history), 
+                        init_func=init, interval=20, blit=True)
+    
+    plt.tight_layout()
+    plt.show()
+    
+    return ani
+
+if _name_ == "_main_":
+    # Simulation parameters
+    num_bodies = 4
+    time_steps = 10000  # More time steps for smoother simulation
+    dt = 0.01
+    boundary = 20
+    
+    # Run simulation
+    position_history = nbody_simulation(num_bodies, time_steps, dt, boundary)
+    
+    # Only root process visualizes results
+    if MPI.COMM_WORLD.Get_rank() == 0 and position_history is not None:
+        save_interval = max(1, time_steps // 500)  # Pass the same save interval used in simulation
+        ani = visualize(position_history, num_bodies, dt * save_interval, boundary, save_interval)
+    
+    # Finalize MPI
+    MPI.Finalize()

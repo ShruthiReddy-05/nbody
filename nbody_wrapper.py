@@ -101,7 +101,8 @@ if MPI.COMM_WORLD.Get_rank() == 0 and position_history is not None:
 
 def run_simulation_direct(num_bodies, time_steps, dt, boundary):
     """
-    Run the simulation directly in the current process (for testing)
+    Run the simulation directly in the current process, exactly matching the nbody_mpi.py implementation
+    but without the MPI parallelization
     
     Args:
         num_bodies: Number of bodies (integer)
@@ -109,30 +110,30 @@ def run_simulation_direct(num_bodies, time_steps, dt, boundary):
         dt: Time step size (float)
         boundary: Boundary size (float)
     """
-    # Initialize simulation data with stable orbital system
+    # Initialize with stable orbital system exactly as in the original implementation
     positions, velocities, masses = initialize_nbody_system(num_bodies, boundary)
     
-    # Save at a reduced frequency to match the MPI implementation
+    # Setup save interval to match MPI implementation
     save_interval = max(1, time_steps // 500)  # Store at most 500 frames
     position_history = [positions.copy()]
     
-    # Run simulation with leapfrog integration for better stability
+    # Run simulation for specified time steps
     for step in range(time_steps):
-        # Calculate forces
+        # Calculate forces on bodies (direct implementation of compute_forces but without MPI)
         forces = np.zeros_like(positions)
         for i in range(num_bodies):
             # Create a mask to exclude self-interaction
             mask = np.ones(num_bodies, dtype=bool)
             mask[i] = False
             
-            # Calculate displacement vectors
+            # Calculate displacement vectors (vectorized)
             r_vectors = positions[mask] - positions[i]
             
-            # Calculate distances
+            # Calculate distances (vectorized)
             r_magnitudes = np.linalg.norm(r_vectors, axis=1)
             r_magnitudes = np.maximum(r_magnitudes, 1e-10)  # Prevent division by zero
             
-            # Calculate force contributions
+            # Calculate force contributions (vectorized)
             G = 6.67430e-11
             force_magnitudes = G * masses[mask] / (r_magnitudes**3)
             force_vectors = r_vectors * force_magnitudes[:, np.newaxis]
@@ -140,22 +141,17 @@ def run_simulation_direct(num_bodies, time_steps, dt, boundary):
             # Sum all force contributions
             forces[i] = np.sum(force_vectors, axis=0)
         
-        # Update velocities by half step (leapfrog integration)
+        # Update velocities by half step - exactly as in nbody_mpi.py
         velocities += forces * dt * 0.5
         
-        # Update positions by full step
+        # Update positions by full step - exactly as in nbody_mpi.py
         positions += velocities * dt
         
-        # Update velocities by another half step
+        # Update velocities by another half step - exactly as in nbody_mpi.py
         velocities += forces * dt * 0.5
         
-        # Save position history at reduced frequency
+        # Save position history at reduced frequency - exactly as in nbody_mpi.py
         if step % save_interval == 0:
             position_history.append(positions.copy())
-            
-        # Add a small perturbation occasionally to make the orbits more dynamic
-        if step % 100 == 0:
-            # Small random perturbation to prevent perfect stable orbits
-            velocities += np.random.normal(0, 0.00001, velocities.shape)
     
     return np.array(position_history)
