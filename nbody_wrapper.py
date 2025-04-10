@@ -4,13 +4,30 @@ import subprocess
 import tempfile
 import numpy as np
 import logging
-from mpi4py import MPI
 import multiprocessing
 
-# Import the N-body simulation code
-from attached_assets.nbody_mpi import initialize_nbody_system, compute_forces, nbody_simulation
-
 logger = logging.getLogger(__name__)
+
+def initialize_nbody_system(num_bodies, boundary=20):
+    """Initialize a stable orbital system with uniform velocities - exact copy from nbody_mpi.py."""
+    positions = np.zeros((num_bodies, 2))
+    velocities = np.zeros((num_bodies, 2))
+    masses = np.ones(num_bodies) * 5.0e12  # Uniform masses for better stability
+    
+    # Place bodies in a circular formation
+    radius = boundary * 0.7  # Use 70% of the boundary for initial positions
+    angle_step = 2 * np.pi / num_bodies
+    
+    for i in range(num_bodies):
+        angle = i * angle_step
+        positions[i] = [radius * np.cos(angle), radius * np.sin(angle)]
+        
+        # Set velocities perpendicular to position for circular orbits
+        # Scale velocity by distance to create stable orbits
+        orbital_speed = np.sqrt(6.67430e-11 * masses.sum() / radius) * 0.5
+        velocities[i] = [-orbital_speed * np.sin(angle), orbital_speed * np.cos(angle)]
+    
+    return positions, velocities, masses
 
 def run_simulation(num_bodies=4, time_steps=10000, dt=0.01, boundary=20.0):
     """
@@ -29,75 +46,6 @@ def run_simulation(num_bodies=4, time_steps=10000, dt=0.01, boundary=20.0):
     
     # Use the direct simulation method instead of MPI for reliability
     return run_simulation_direct(num_bodies, time_steps, dt, boundary)
-
-def launch_mpi_simulation(num_bodies, time_steps, dt, boundary):
-    """Launch the MPI simulation as a subprocess and return the results"""
-    logger.debug("Launching MPI simulation subprocess")
-    
-    # Create a temporary file to store the simulation results
-    with tempfile.NamedTemporaryFile(suffix='.npy', delete=False) as tmp_file:
-        output_path = tmp_file.name
-    
-    # Create a small Python script to run the simulation with MPI
-    script_content = f"""
-import sys
-import numpy as np
-from mpi4py import MPI
-from attached_assets.nbody_mpi import nbody_simulation
-
-# Run simulation
-num_bodies = {num_bodies}
-time_steps = {time_steps}
-dt = {dt}
-boundary = {boundary}
-position_history = nbody_simulation(num_bodies, time_steps, dt, boundary)
-
-# Only root process saves results
-if MPI.COMM_WORLD.Get_rank() == 0 and position_history is not None:
-    np.save("{output_path}", position_history)
-"""
-    
-    # Write the script to a temporary file
-    with tempfile.NamedTemporaryFile(suffix='.py', delete=False) as script_file:
-        script_file.write(script_content.encode())
-        script_path = script_file.name
-    
-    try:
-        # Determine number of processes to use
-        num_processes = min(4, multiprocessing.cpu_count())
-        
-        # Run the MPI command
-        cmd = ['mpiexec', '-n', str(num_processes), sys.executable, script_path]
-        logger.debug(f"Running command: {' '.join(cmd)}")
-        
-        process = subprocess.Popen(
-            cmd, 
-            stdout=subprocess.PIPE, 
-            stderr=subprocess.PIPE
-        )
-        stdout, stderr = process.communicate()
-        
-        if process.returncode != 0:
-            logger.error(f"MPI process failed with code {process.returncode}")
-            logger.error(f"STDOUT: {stdout.decode()}")
-            logger.error(f"STDERR: {stderr.decode()}")
-            raise RuntimeError(f"MPI simulation failed: {stderr.decode()}")
-        
-        # Load the simulation results
-        if os.path.exists(output_path):
-            position_history = np.load(output_path)
-            logger.debug(f"Loaded position history with shape {position_history.shape}")
-            return position_history
-        else:
-            logger.error("Output file not found after simulation")
-            raise FileNotFoundError("Simulation output file not found")
-        
-    finally:
-        # Clean up temporary files
-        if os.path.exists(script_path):
-            os.unlink(script_path)
-        if os.path.exists(output_path):
-            os.unlink(output_path)
 
 def run_simulation_direct(num_bodies, time_steps, dt, boundary):
     """
@@ -119,8 +67,9 @@ def run_simulation_direct(num_bodies, time_steps, dt, boundary):
     
     # Run simulation for specified time steps
     for step in range(time_steps):
-        # Calculate forces on bodies (direct implementation of compute_forces but without MPI)
+        # Calculate forces on bodies (direct implementation from the original file)
         forces = np.zeros_like(positions)
+        
         for i in range(num_bodies):
             # Create a mask to exclude self-interaction
             mask = np.ones(num_bodies, dtype=bool)
