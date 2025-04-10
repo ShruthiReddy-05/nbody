@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 def run_simulation(num_bodies=4, time_steps=10000, dt=0.01, boundary=20):
     """
-    Wrapper to run the MPI N-body simulation
+    Wrapper to run the N-body simulation
     
     Args:
         num_bodies: Number of bodies in the simulation
@@ -27,13 +27,8 @@ def run_simulation(num_bodies=4, time_steps=10000, dt=0.01, boundary=20):
     """
     logger.debug(f"Starting simulation with {num_bodies} bodies for {time_steps} steps")
     
-    # Check if we're running in an MPI context already
-    if MPI.COMM_WORLD.Get_size() > 1:
-        # We're already running under MPI, execute simulation directly
-        return nbody_simulation(num_bodies, time_steps, dt, boundary)
-    else:
-        # We need to launch an MPI process
-        return launch_mpi_simulation(num_bodies, time_steps, dt, boundary)
+    # Use the direct simulation method instead of MPI for reliability
+    return run_simulation_direct(num_bodies, time_steps, dt, boundary)
 
 def launch_mpi_simulation(num_bodies, time_steps, dt, boundary):
     """Launch the MPI simulation as a subprocess and return the results"""
