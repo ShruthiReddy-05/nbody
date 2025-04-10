@@ -68,8 +68,8 @@ def run_simulation_direct(num_bodies, time_steps, dt, boundary):
     save_interval = max(1, time_steps // 500)  # Store at most 500 frames
     position_history = [positions.copy()]
     
-    # Set boundary containment strength
-    boundary_strength = 0.2  # How strongly balls get pushed back inside boundary
+    # Bounce coefficient - how much energy is retained after a bounce (1.0 = perfect elastic collision)
+    bounce_coefficient = 0.95
     
     # Run simulation for specified time steps
     for step in range(time_steps):
@@ -96,16 +96,6 @@ def run_simulation_direct(num_bodies, time_steps, dt, boundary):
             
             # Sum all force contributions
             forces[i] = np.sum(force_vectors, axis=0)
-            
-            # Add containment force - push bodies back when they approach boundary
-            distance_to_center = np.linalg.norm(positions[i])
-            if distance_to_center > boundary * 0.8:  # Start pushing back at 80% of boundary
-                # Calculate direction to center
-                direction_to_center = -positions[i] / max(distance_to_center, 1e-10)
-                # Scale force by how close to boundary (increases as approaches boundary)
-                boundary_factor = ((distance_to_center / boundary) ** 4) * boundary_strength
-                # Add containment force
-                forces[i] += direction_to_center * boundary_factor * masses[i]
         
         # Update velocities by half step (leapfrog integration)
         velocities += forces * dt * 0.5
@@ -113,17 +103,23 @@ def run_simulation_direct(num_bodies, time_steps, dt, boundary):
         # Update positions by full step
         positions += velocities * dt
         
-        # Hard boundary check - if body escapes, place back inside with reversed velocity
+        # Bounce off the boundary - elastic collision with the boundary
         for i in range(num_bodies):
-            distance_to_center = np.linalg.norm(positions[i])
-            if distance_to_center >= boundary * 0.95:  # If very close to boundary
-                # Set position to 90% of boundary in same direction
-                direction = positions[i] / max(distance_to_center, 1e-10)
-                positions[i] = direction * (boundary * 0.9)
-                # Dampen and reverse velocity component toward boundary
-                radial_velocity = np.dot(velocities[i], direction)
-                if radial_velocity > 0:  # Moving outward
-                    velocities[i] -= direction * radial_velocity * 1.5  # Reverse with dampening
+            # Check for collision with each boundary
+            # Get the x and y positions and velocities
+            x, y = positions[i]
+            vx, vy = velocities[i]
+            
+            # Check boundary collisions and reflect velocity
+            if abs(x) >= boundary:
+                # Hit left/right boundary - reflect x component and move inside boundary
+                positions[i][0] = np.sign(x) * (boundary - 0.1)  # Move slightly inside
+                velocities[i][0] = -vx * bounce_coefficient  # Bounce with slight energy loss
+                
+            if abs(y) >= boundary:
+                # Hit top/bottom boundary - reflect y component and move inside boundary
+                positions[i][1] = np.sign(y) * (boundary - 0.1)  # Move slightly inside
+                velocities[i][1] = -vy * bounce_coefficient  # Bounce with slight energy loss
         
         # Update velocities by another half step
         velocities += forces * dt * 0.5
