@@ -12,7 +12,7 @@ from attached_assets.nbody_mpi import initialize_nbody_system, compute_forces, n
 
 logger = logging.getLogger(__name__)
 
-def run_simulation(num_bodies=4, time_steps=10000, dt=0.01, boundary=20):
+def run_simulation(num_bodies=4, time_steps=10000, dt=0.01, boundary=20.0):
     """
     Wrapper to run the N-body simulation
     
@@ -102,6 +102,12 @@ if MPI.COMM_WORLD.Get_rank() == 0 and position_history is not None:
 def run_simulation_direct(num_bodies, time_steps, dt, boundary):
     """
     Run the simulation directly in the current process (for testing)
+    
+    Args:
+        num_bodies: Number of bodies (integer)
+        time_steps: Number of time steps (integer)
+        dt: Time step size (float)
+        boundary: Boundary size (float)
     """
     # Initialize simulation data
     positions, velocities, masses = initialize_nbody_system(num_bodies, boundary)

@@ -94,7 +94,7 @@ def simulation_status():
 def get_position_data():
     """Get the latest position data from the simulation"""
     with simulation_lock:
-        if not latest_positions:
+        if latest_positions is None or len(latest_positions) == 0:
             return jsonify({"status": "waiting", "data": []})
         
         # Get frame index from request, default to latest
@@ -103,7 +103,7 @@ def get_position_data():
             frame = len(latest_positions) - 1
         
         # Convert numpy arrays to lists for JSON serialization
-        position_data = latest_positions[frame].tolist() if frame >= 0 and latest_positions else []
+        position_data = latest_positions[frame].tolist() if frame >= 0 else []
         
         return jsonify({
             "status": "success", 
@@ -116,7 +116,7 @@ def get_position_data():
 def get_all_position_data():
     """Get all position data for the complete simulation"""
     with simulation_lock:
-        if not latest_positions:
+        if latest_positions is None or len(latest_positions) == 0:
             return jsonify({"status": "waiting", "data": []})
         
         # Convert all numpy arrays to lists for JSON serialization
