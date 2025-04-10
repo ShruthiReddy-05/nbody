@@ -206,7 +206,7 @@ def visualize(position_history, num_bodies, dt, boundary=20, save_interval=1):
     
     return ani
 
-if __name__ == "_main_":
+if __name__ == "__main__":
     # Simulation parameters
     num_bodies = 4
     time_steps = 10000  # More time steps for smoother simulation
