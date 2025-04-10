@@ -53,6 +53,7 @@ def run_simulation(num_bodies=4, time_steps=10000, dt=0.01, boundary=20.0):
 def run_simulation_direct(num_bodies, time_steps, dt, boundary):
     """
     Run the simulation directly in the current process, with enhanced visualization
+    and containment to keep bodies within boundaries
     
     Args:
         num_bodies: Number of bodies (integer)
@@ -66,6 +67,9 @@ def run_simulation_direct(num_bodies, time_steps, dt, boundary):
     # Setup save interval - use a smaller value to show more frames
     save_interval = max(1, time_steps // 500)  # Store at most 500 frames
     position_history = [positions.copy()]
+    
+    # Set boundary containment strength
+    boundary_strength = 0.2  # How strongly balls get pushed back inside boundary
     
     # Run simulation for specified time steps
     for step in range(time_steps):
@@ -85,19 +89,41 @@ def run_simulation_direct(num_bodies, time_steps, dt, boundary):
             r_magnitudes = np.maximum(r_magnitudes, 1e-10)  # Prevent division by zero
             
             # Calculate force contributions (vectorized)
-            # Increase gravitational constant for more dramatic movement
-            G = 6.67430e-11 * 2.0  # Multiplier for more visible movement
+            # Use slightly lower gravitational constant to prevent bodies from escaping
+            G = 6.67430e-11 * 1.2  # Multiplier for more visible movement but not too fast
             force_magnitudes = G * masses[mask] / (r_magnitudes**3)
             force_vectors = r_vectors * force_magnitudes[:, np.newaxis]
             
             # Sum all force contributions
             forces[i] = np.sum(force_vectors, axis=0)
+            
+            # Add containment force - push bodies back when they approach boundary
+            distance_to_center = np.linalg.norm(positions[i])
+            if distance_to_center > boundary * 0.8:  # Start pushing back at 80% of boundary
+                # Calculate direction to center
+                direction_to_center = -positions[i] / max(distance_to_center, 1e-10)
+                # Scale force by how close to boundary (increases as approaches boundary)
+                boundary_factor = ((distance_to_center / boundary) ** 4) * boundary_strength
+                # Add containment force
+                forces[i] += direction_to_center * boundary_factor * masses[i]
         
         # Update velocities by half step (leapfrog integration)
         velocities += forces * dt * 0.5
         
         # Update positions by full step
         positions += velocities * dt
+        
+        # Hard boundary check - if body escapes, place back inside with reversed velocity
+        for i in range(num_bodies):
+            distance_to_center = np.linalg.norm(positions[i])
+            if distance_to_center >= boundary * 0.95:  # If very close to boundary
+                # Set position to 90% of boundary in same direction
+                direction = positions[i] / max(distance_to_center, 1e-10)
+                positions[i] = direction * (boundary * 0.9)
+                # Dampen and reverse velocity component toward boundary
+                radial_velocity = np.dot(velocities[i], direction)
+                if radial_velocity > 0:  # Moving outward
+                    velocities[i] -= direction * radial_velocity * 1.5  # Reverse with dampening
         
         # Update velocities by another half step
         velocities += forces * dt * 0.5
@@ -106,9 +132,9 @@ def run_simulation_direct(num_bodies, time_steps, dt, boundary):
         if step % save_interval == 0:
             position_history.append(positions.copy())
             
-        # Add occasional perturbation to make orbits less perfect and more interesting
-        if step % 500 == 0 and step > 0:
-            # Small random perturbation
-            velocities += np.random.normal(0, 0.00001 * velocities.std(), velocities.shape)
+        # Add occasional perturbation to make orbits more interesting but not too much
+        if step % 800 == 0 and step > 0:
+            # Smaller random perturbation
+            velocities += np.random.normal(0, 0.000005 * velocities.std(), velocities.shape)
     
     return np.array(position_history)
